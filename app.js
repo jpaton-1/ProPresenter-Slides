@@ -154,13 +154,17 @@
     return b.length ? b[0] : null;
   }
   function hasTextRtf(cue) { const b = []; allRtf(cue, b); return b.some(x => containsCf2(x.val)); }
+  function holdsRtfDirectly(msg) {
+    return msg.some(h => h.num === 5 && h.wt === 2 && isBytes(h.val) && startsWithRtf(h.val));
+  }
   function stripTextElements(field) {
-    // Remove text-box elements so a blank slide is just the background.
+    // Remove the whole text-box element (frame + text object) so a blank slide
+    // is truly empty. The element is the node whose direct child is the text object.
     if (!(field.wt === 2 && Array.isArray(field.val))) return;
     field.val = field.val.filter(f => {
       if (f.wt === 2 && Array.isArray(f.val) &&
-          f.val.some(g => g.num === 5 && g.wt === 2 && isBytes(g.val) && startsWithRtf(g.val)))
-        return false;
+          f.val.some(g => g.wt === 2 && Array.isArray(g.val) && holdsRtfDirectly(g.val)))
+        return false;                      // drop the entire element
       stripTextElements(f);
       return true;
     });
