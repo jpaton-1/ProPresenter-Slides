@@ -132,9 +132,16 @@
     })(field.val);
     return map;
   }
+  function fieldBytes(f) {
+    // Raw bytes even if the parser decoded a scalar as a sub-message (UUID strings
+    // can look like valid protobuf).
+    if (isBytes(f.val)) return f.val;
+    if (Array.isArray(f.val)) return serialize(f.val);
+    return new Uint8Array(0);
+  }
   function cueId(cue) {
     for (const f of cue.val) if (f.num === 1 && Array.isArray(f.val))
-      for (const g of f.val) if (g.num === 1 && g.wt === 2 && isBytes(g.val)) return fromLatin1(g.val);
+      for (const g of f.val) if (g.num === 1 && g.wt === 2) return fromLatin1(fieldBytes(g));
     return null;
   }
   function allRtf(field, out) {
@@ -147,6 +154,17 @@
     return b.length ? b[0] : null;
   }
   function hasTextRtf(cue) { const b = []; allRtf(cue, b); return b.some(x => containsCf2(x.val)); }
+  function stripTextElements(field) {
+    // Remove text-box elements so a blank slide is just the background.
+    if (!(field.wt === 2 && Array.isArray(field.val))) return;
+    field.val = field.val.filter(f => {
+      if (f.wt === 2 && Array.isArray(f.val) &&
+          f.val.some(g => g.num === 5 && g.wt === 2 && isBytes(g.val) && startsWithRtf(g.val)))
+        return false;
+      stripTextElements(f);
+      return true;
+    });
+  }
   function clearCaps(fields) {
     // Remove ProPresenter's capitalization transform so text renders as written.
     const isText = fields.some(f => f.num === 5 && f.wt === 2 && isBytes(f.val) && startsWithRtf(f.val));
@@ -164,7 +182,7 @@
   }
   function entryUuid(e) {
     if (e.num !== 2 || !Array.isArray(e.val)) return null;
-    for (const h of e.val) if (h.num === 1 && h.wt === 2 && isBytes(h.val)) return fromLatin1(h.val);
+    for (const h of e.val) if (h.num === 1 && h.wt === 2) return fromLatin1(fieldBytes(h));
     return null;
   }
   function orderList(tree) {
@@ -225,7 +243,7 @@
     const protoEntry = orderEntryFor(ol, cueId(proto));
 
     const newCues = [], newOrder = [ol.val[0]];
-    const makeBlank = () => { const c = cloneField(proto); remapUuids(c); setText(c, ""); return c; };
+    const makeBlank = () => { const c = cloneField(proto); remapUuids(c); stripTextElements(c); return c; };
     const push = (cue, entry) => { newCues.push(cue); newOrder.push(entry || makeOrderEntry(protoEntry, cueId(cue))); };
     if (leadingBlank) push(makeBlank());
     if (introCue) push(introCue, orderEntryFor(ol, cueId(introCue)));
