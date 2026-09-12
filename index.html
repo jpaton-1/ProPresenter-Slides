@@ -76,6 +76,16 @@
       </label>
     </div>
     <p class="muted" style="margin:14px 0 0">The sermon doc is optional. Slide text in the sermon doc must be marked <code>SLIDE 1 - …</code>.</p>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap">
+      <label for="clusters" style="font-weight:600">Blank slides in the sermon</label>
+      <select id="clusters" style="padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit">
+        <option value="90">More — blank after shorter gaps</option>
+        <option value="150" selected>Balanced — blank between clusters</option>
+        <option value="250">Fewer — only after long teaching</option>
+        <option value="0">None — no blanks between points</option>
+      </select>
+    </div>
+    <p class="muted" style="margin:8px 0 0">A blank slide is always added at the start. This adds blanks between sermon “clusters” so volunteers can click to a clean screen while you preach.</p>
   </div>
 
   <button class="go" id="go" disabled>Generate slides</button>
@@ -122,7 +132,8 @@
       const t = await loadTemplates();
       const lit = await WS.docxParagraphs(await readBuf(litBuf), JSZip);
       const ser = serBuf ? await WS.docxParagraphs(await readBuf(serBuf), JSZip) : [];
-      const {files, scriptureRef} = WS.generateAll(lit, ser, t, {});
+      const clusterWords = parseInt($("#clusters").value, 10);
+      const {files, scriptureRef} = WS.generateAll(lit, ser, t, {clusterWords});
       generated = files;
       renderResults(files, scriptureRef);
     }catch(e){ console.error(e); $("#err").textContent = "Something went wrong: "+e.message; }

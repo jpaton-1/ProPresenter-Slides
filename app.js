@@ -147,6 +147,15 @@
     return b.length ? b[0] : null;
   }
   function hasTextRtf(cue) { const b = []; allRtf(cue, b); return b.some(x => containsCf2(x.val)); }
+  function clearCaps(fields) {
+    // Remove ProPresenter's capitalization transform so text renders as written.
+    const isText = fields.some(f => f.num === 5 && f.wt === 2 && isBytes(f.val) && startsWithRtf(f.val));
+    if (isText) for (const f of fields) {
+      if (f.num === 3 && f.wt === 2 && Array.isArray(f.val)) f.val = f.val.filter(g => g.num !== 2);
+      else if (f.num === 13 && f.wt === 2 && Array.isArray(f.val)) f.val = f.val.filter(g => !(g.num === 2 && g.wt === 0));
+    }
+    for (const f of fields) if (f.wt === 2 && Array.isArray(f.val)) clearCaps(f.val);
+  }
   function setText(cue, text) {
     const leaf = findRtf(cue); if (!leaf) return false;
     const parts = rtfSplit(leaf.val); if (!parts) return false;
@@ -196,7 +205,8 @@
   }
 
   // ---------------- element builder ----------------
-  function buildElement(templateBytes, chunks, introHint, name) {
+  function buildElement(templateBytes, chunks, introHint, name, leadingBlank, blanksBefore) {
+    blanksBefore = blanksBefore || new Set();
     const tree = parse(templateBytes);
     if (name) for (const f of tree) if (f.num === 3 && f.wt === 2) { f.val = toLatin1(name); break; }
     const cues = tree.filter(f => f.num === 13);
@@ -215,12 +225,16 @@
     const protoEntry = orderEntryFor(ol, cueId(proto));
 
     const newCues = [], newOrder = [ol.val[0]];
-    if (introCue) { newCues.push(introCue); const ie = orderEntryFor(ol, cueId(introCue)); if (ie) newOrder.push(ie); }
-    for (const ch of chunks) {
-      const c = cloneField(proto); remapUuids(c); setText(c, ch);
-      newCues.push(c); newOrder.push(makeOrderEntry(protoEntry, cueId(c)));
-    }
+    const makeBlank = () => { const c = cloneField(proto); remapUuids(c); setText(c, ""); return c; };
+    const push = (cue, entry) => { newCues.push(cue); newOrder.push(entry || makeOrderEntry(protoEntry, cueId(cue))); };
+    if (leadingBlank) push(makeBlank());
+    if (introCue) push(introCue, orderEntryFor(ol, cueId(introCue)));
+    chunks.forEach((ch, k) => {
+      if (blanksBefore.has(k)) push(makeBlank());
+      const c = cloneField(proto); remapUuids(c); setText(c, ch); push(c);
+    });
     ol.val = newOrder;
+    for (const c of newCues) clearCaps(c.val);   // render exactly as written
 
     const result = []; let inserted = false;
     for (const f of tree) {
@@ -278,10 +292,19 @@
     }
     return { sections, scriptures };
   }
-  function parseSermon(paras) {
-    const re = /^\s*SLIDE\s*\d+\s*-\s*(.+)$/i, out = [];
-    for (const t of paras) { const m = t.match(re); if (m) out.push(m[1].trim()); }
-    return out;
+  function parseSermon(paras, clusterWords) {
+    // Returns {texts, blanks}: a blank precedes a slide when >= clusterWords of
+    // preaching separates it from the previous slide. clusterWords=0 disables.
+    const re = /^\s*SLIDE\s*\d+\s*-\s*(.+)$/i;
+    const texts = [], blanks = new Set(); let buf = 0;
+    for (const t of paras) {
+      const m = t.match(re);
+      if (m) {
+        if (texts.length && clusterWords && buf >= clusterWords) blanks.add(texts.length);
+        texts.push(m[1].trim()); buf = 0;
+      } else buf += t.split(/\s+/).filter(Boolean).length;
+    }
+    return { texts, blanks };
   }
   function sentencePack(text, maxlen) {
     const sents = (text.match(/[^.!?]*[.!?]+|\S[^.!?]*$/g) || []).map(s => s.trim()).filter(Boolean);
@@ -299,18 +322,22 @@
 
   // Build every element from parsed docs. opts: {prayerMax, ctwMax}
   function generateAll(liturgyParas, sermonParas, templates, opts) {
-    opts = opts || {}; const prayerMax = opts.prayerMax || 200;
+    opts = opts || {};
+    const prayerMax = opts.prayerMax || 200;
+    const lead = opts.leadingBlank !== false;               // leading blank on by default
+    const clusterWords = opts.clusterWords != null ? opts.clusterWords : 150;
     const { sections, scriptures } = parseLiturgy(liturgyParas);
     const files = [];
     const ctw = sections.call_to_worship || [];
     if (ctw.length) files.push({ name: "Call to Worship.pro",
-      bytes: buildElement(templates.confession, ctw.slice(), null, "Call to Worship") });
+      bytes: buildElement(templates.confession, ctw.slice(), null, "Call to Worship", lead, null) });
     let conf = chunkProse(sections.confession, prayerMax).concat(chunkProse(sections.assurance, prayerMax));
     if (conf.length) files.push({ name: "Prayer of Confession & Assurance of Pardon.pro",
-      bytes: buildElement(templates.confession, conf, "Join us", "Prayer of Confession & Assurance of Pardon") });
+      bytes: buildElement(templates.confession, conf, "Join us", "Prayer of Confession & Assurance of Pardon", lead, null) });
     if (sermonParas && sermonParas.length) {
-      const pts = parseSermon(sermonParas);
-      if (pts.length) files.push({ name: "Sermon.pro", bytes: buildElement(templates.sermon, pts, null, "Sermon") });
+      const { texts, blanks } = parseSermon(sermonParas, clusterWords);
+      if (texts.length) files.push({ name: "Sermon.pro",
+        bytes: buildElement(templates.sermon, texts, null, "Sermon", lead, blanks) });
     }
     const nt = scriptures.find(s => /lesson/i.test(s[0]));
     const scriptureRef = nt ? cleanRef(nt[0]) : (scriptures.length ? cleanRef(scriptures[0][0]) : null);
