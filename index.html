@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Worship Slides</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#1a1d21; --muted:#5b6470; --line:#e3e6ea;
+    --accent:#3b5bdb; --accent-ink:#fff; --ok:#2b8a3e; --okbg:#ebfbee; --warnbg:#fff9db; --warnink:#7a5b00;
+    --shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--card:#1c2024;--ink:#e8eaed;--muted:#9aa4b0;--line:#2b3138;
+      --accent:#5c7cfa;--okbg:#123018;--ok:#8ce99a;--warnbg:#2e2600;--warnink:#ffe08a;
+      --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:760px;margin:0 auto;padding:32px 20px 80px}
+  header h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+  header p{margin:0 0 24px;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;
+    box-shadow:var(--shadow);margin-bottom:18px}
+  .card h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 14px}
+  .drop{display:flex;align-items:center;gap:14px;border:1.5px dashed var(--line);border-radius:11px;
+    padding:16px;cursor:pointer;transition:.15s;background:transparent}
+  .drop:hover,.drop.hl{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent)}
+  .drop input{display:none}
+  .drop .ic{font-size:26px;line-height:1}
+  .drop .t{flex:1;min-width:0}
+  .drop .t b{display:block;font-weight:600}
+  .drop .t span{color:var(--muted);font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .drop.set{border-style:solid;border-color:var(--ok)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:560px){.row{grid-template-columns:1fr}}
+  button.go{width:100%;margin-top:4px;background:var(--accent);color:var(--accent-ink);border:0;
+    border-radius:11px;padding:14px;font-size:16px;font-weight:600;cursor:pointer}
+  button.go:disabled{opacity:.5;cursor:not-allowed}
+  .file{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+  .file:first-child{border-top:0}
+  .file .n{flex:1}
+  .file .n b{font-weight:600}
+  .file .n span{color:var(--muted);font-size:13px}
+  .dl{background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:9px;
+    padding:8px 14px;font-weight:600;cursor:pointer;text-decoration:none;font-size:14px}
+  .scripture{background:var(--warnbg);color:var(--warnink);border-radius:11px;padding:14px 16px;margin-top:4px}
+  .scripture b{font-weight:700}
+  .allbtn{margin-top:16px}
+  .muted{color:var(--muted);font-size:13px}
+  .err{color:#c92a2a;font-size:14px;margin-top:10px}
+  code{background:color-mix(in srgb,var(--muted) 15%,transparent);padding:1px 6px;border-radius:5px;font-size:13px}
+  #results{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Worship Slides</h1>
+    <p>Drop in this week's Word docs → get ProPresenter <code>.pro</code> files. Everything runs in your browser; nothing is uploaded.</p>
+  </header>
+
+  <div class="card">
+    <h2>1 · This week's documents</h2>
+    <div class="row">
+      <label class="drop" id="litDrop">
+        <span class="ic">📄</span>
+        <span class="t"><b>Liturgy doc</b><span id="litName">Call to Worship, Confession…</span></span>
+        <input type="file" id="lit" accept=".docx">
+      </label>
+      <label class="drop" id="serDrop">
+        <span class="ic">📖</span>
+        <span class="t"><b>Sermon doc</b><span id="serName">SLIDE-marked manuscript</span></span>
+        <input type="file" id="ser" accept=".docx">
+      </label>
+    </div>
+    <p class="muted" style="margin:14px 0 0">The sermon doc is optional. Slide text in the sermon doc must be marked <code>SLIDE 1 - …</code>.</p>
+  </div>
+
+  <button class="go" id="go" disabled>Generate slides</button>
+  <div class="err" id="err"></div>
+
+  <div class="card" id="results">
+    <h2>2 · Download</h2>
+    <div id="files"></div>
+    <div id="scripture"></div>
+    <button class="go allbtn" id="all" style="background:transparent;border:1px solid var(--line);color:var(--ink)">Download all as .zip</button>
+    <p class="muted" style="margin-top:14px">Import each file into ProPresenter (File → Import, or drag into a playlist). Backgrounds are removed so your theme shows through.</p>
+  </div>
+</div>
+
+<script src="vendor/jszip.min.js"></script>
+<script src="app.js"></script>
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  let litBuf=null, serBuf=null, templates=null, generated=null;
+
+  function wire(inputId, dropId, nameId, set){
+    const inp=$("#"+inputId), drop=$("#"+dropId), nm=$("#"+nameId);
+    inp.addEventListener("change", e=>{ const f=e.target.files[0]; if(f){ set(f); nm.textContent=f.name; drop.classList.add("set"); refresh(); }});
+    ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hl");}));
+    ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hl");}));
+    drop.addEventListener("drop",e=>{ const f=e.dataTransfer.files[0]; if(f&&f.name.endsWith(".docx")){ inp.files=e.dataTransfer.files; set(f); nm.textContent=f.name; drop.classList.add("set"); refresh(); }});
+  }
+  wire("lit","litDrop","litName", f=>litBuf=f);
+  wire("ser","serDrop","serName", f=>serBuf=f);
+  function refresh(){ $("#go").disabled = !litBuf; }
+
+  async function loadTemplates(){
+    if(templates) return templates;
+    const get = async n => new Uint8Array(await (await fetch("templates/"+n)).arrayBuffer());
+    templates = { confession: await get("confession.pro"), sermon: await get("sermon.pro") };
+    return templates;
+  }
+  const readBuf = f => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsArrayBuffer(f); });
+
+  $("#go").addEventListener("click", async ()=>{
+    $("#err").textContent=""; $("#go").disabled=true; $("#go").textContent="Generating…";
+    try{
+      const t = await loadTemplates();
+      const lit = await WS.docxParagraphs(await readBuf(litBuf), JSZip);
+      const ser = serBuf ? await WS.docxParagraphs(await readBuf(serBuf), JSZip) : [];
+      const {files, scriptureRef} = WS.generateAll(lit, ser, t, {});
+      generated = files;
+      renderResults(files, scriptureRef);
+    }catch(e){ console.error(e); $("#err").textContent = "Something went wrong: "+e.message; }
+    $("#go").disabled=false; $("#go").textContent="Generate slides";
+  });
+
+  function slideCount(bytes){ try{ return WS.parse(bytes).filter(f=>f.num===13).length; }catch(e){ return "?"; } }
+  function download(name, bytes){ const b=new Blob([bytes],{type:"application/octet-stream"});
+    const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(u),2000); }
+
+  function renderResults(files, scriptureRef){
+    const box=$("#files"); box.innerHTML="";
+    if(!files.length){ box.innerHTML='<p class="muted">No content detected in that document.</p>'; }
+    files.forEach(f=>{
+      const div=document.createElement("div"); div.className="file";
+      div.innerHTML=`<div class="n"><b>${f.name}</b><span> ${slideCount(f.bytes)} slides</span></div>`;
+      const btn=document.createElement("button"); btn.className="dl"; btn.textContent="Download";
+      btn.onclick=()=>download(f.name, f.bytes); div.appendChild(btn); box.appendChild(div);
+    });
+    const s=$("#scripture");
+    s.innerHTML = scriptureRef
+      ? `<div class="scripture">📖 <b>Scripture — make in ProPresenter:</b> open the Bible tool and enter <b>${scriptureRef}</b> (NRSV). Kept in ProPresenter so it uses your licensed NRSV.</div>`
+      : "";
+    $("#all").style.display = files.length ? "block" : "none";
+    $("#results").style.display="block";
+    $("#results").scrollIntoView({behavior:"smooth",block:"nearest"});
+  }
+
+  $("#all").addEventListener("click", async ()=>{
+    if(!generated) return;
+    const zip=new JSZip(); generated.forEach(f=>zip.file(f.name, f.bytes));
+    const blob=await zip.generateAsync({type:"blob"});
+    const u=URL.createObjectURL(blob); const a=document.createElement("a");
+    a.href=u; a.download="worship-slides.zip"; a.click(); setTimeout(()=>URL.revokeObjectURL(u),2000);
+  });
+})();
+</script>
+</body>
+</html>
