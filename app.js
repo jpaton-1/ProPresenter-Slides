@@ -170,11 +170,20 @@
     });
   }
   function clearCaps(fields) {
-    // Remove ProPresenter's capitalization transform so text renders as written.
+    // Remove capitalization so text renders as written: the base capitalization
+    // (Attributes field 2) and every per-run custom_attributes override (Attributes
+    // field 13) that carries its own capitalization (field 2). custom_attributes are
+    // nested inside the Attributes message (field 3 of Text), not at the Text level.
     const isText = fields.some(f => f.num === 5 && f.wt === 2 && isBytes(f.val) && startsWithRtf(f.val));
     if (isText) for (const f of fields) {
-      if (f.num === 3 && f.wt === 2 && Array.isArray(f.val)) f.val = f.val.filter(g => g.num !== 2);
-      else if (f.num === 13 && f.wt === 2 && Array.isArray(f.val)) f.val = f.val.filter(g => !(g.num === 2 && g.wt === 0));
+      if (f.num === 3 && f.wt === 2 && Array.isArray(f.val)) {
+        f.val = f.val.filter(g => {
+          if (g.num === 2 && g.wt === 0) return false;                       // base capitalization
+          if (g.num === 13 && g.wt === 2 && Array.isArray(g.val) && g.val.some(h => h.num === 2))
+            return false;                                                     // a capitalization run
+          return true;
+        });
+      }
     }
     for (const f of fields) if (f.wt === 2 && Array.isArray(f.val)) clearCaps(f.val);
   }
@@ -227,7 +236,7 @@
   }
 
   // ---------------- element builder ----------------
-  function buildElement(templateBytes, chunks, introHint, name, leadingBlank, blanksBefore) {
+  function buildElement(templateBytes, chunks, introHint, name, leadingBlank, blanksBefore, blankAfterEach) {
     blanksBefore = blanksBefore || new Set();
     const tree = parse(templateBytes);
     if (name) for (const f of tree) if (f.num === 3 && f.wt === 2) { f.val = toLatin1(name); break; }
@@ -254,6 +263,7 @@
     chunks.forEach((ch, k) => {
       if (blanksBefore.has(k)) push(makeBlank());
       const c = cloneField(proto); remapUuids(c); setText(c, ch); push(c);
+      if (blankAfterEach) push(makeBlank());
     });
     ol.val = newOrder;
     for (const c of newCues) clearCaps(c.val);   // render exactly as written
@@ -342,6 +352,50 @@
 
   function cleanRef(ref) { return ref.replace(/^\s*(nt|ot)\s+lesson\s*[-–:]*\s*/i, "").trim(); }
 
+  // Parse pasted Bible-Gateway text into [{n, text}]. Robust to the reference
+  // header, section headings and footnotes: it keeps the longest run of
+  // consecutive verse numbers, so stray numbers (like "James 3") are ignored.
+  function parseScripture(raw) {
+    let text = raw.split(/\n\s*(?:Footnotes|Cross references)\b/i)[0]; // drop footnote tail
+    text = text.replace(/\[[A-Za-z0-9]+\]/g, " ");                      // footnote markers [a]
+    // keep newlines: they, and sentence punctuation, mark a real verse boundary
+    const BOUND = new Set([".", "?", "!", ":", ";", '"', "”", "’", "'", ")", "]", "\n"]);
+    const re = /(\d{1,3})(?=\s*["“'(A-Za-z])/g;
+    const cands = []; let m;
+    while ((m = re.exec(text))) {
+      let k = m.index - 1; while (k >= 0 && text[k] === " ") k--;      // preceding non-space char
+      const boundary = k < 0 || BOUND.has(text[k]);
+      cands.push({ n: parseInt(m[1], 10), s: m.index, e: m.index + m[1].length, boundary });
+    }
+    // longest ascending-consecutive run, preferring boundary candidates
+    function longestRun(list) {
+      let best = [];
+      for (let i = 0; i < list.length; i++) {
+        const run = [list[i]]; let exp = list[i].n + 1;
+        for (let j = i + 1; j < list.length; j++) if (list[j].n === exp) { run.push(list[j]); exp++; }
+        if (run.length > best.length) best = run;
+      }
+      return best;
+    }
+    let best = longestRun(cands.filter(c => c.boundary));
+    if (best.length < 2) best = longestRun(cands);                     // fallback if no punctuation
+    const verses = [];
+    for (let i = 0; i < best.length; i++) {
+      const start = best[i].e, end = i + 1 < best.length ? best[i + 1].s : text.length;
+      const t = text.slice(start, end).replace(/\s+/g, " ").trim();
+      if (t) verses.push({ n: best[i].n, text: t });
+    }
+    return verses;
+  }
+
+  // Build a scripture .pro from pasted text: one verse per slide, verse number
+  // prefixed, with a leading blank.
+  function buildScripture(templateBytes, rawText, name) {
+    const verses = parseScripture(rawText);
+    const slides = verses.map(v => v.n + " " + v.text);
+    return { bytes: buildElement(templateBytes, slides, null, name || "Scripture Reading", true, null), count: slides.length };
+  }
+
   // Build every element from parsed docs. opts: {prayerMax, ctwMax}
   function generateAll(liturgyParas, sermonParas, templates, opts) {
     opts = opts || {};
@@ -354,12 +408,13 @@
     if (ctw.length) files.push({ name: "Call to Worship.pro",
       bytes: buildElement(templates.confession, ctw.slice(), null, "Call to Worship", lead, null) });
     let conf = chunkProse(sections.confession, prayerMax).concat(chunkProse(sections.assurance, prayerMax));
-    if (conf.length) files.push({ name: "Prayer of Confession & Assurance of Pardon.pro",
-      bytes: buildElement(templates.confession, conf, "Join us", "Prayer of Confession & Assurance of Pardon", lead, null) });
+    if (conf.length) files.push({ name: "Prayer of Confession.pro",
+      bytes: buildElement(templates.confession, conf, "Join us", "Prayer of Confession", lead, null) });
     if (sermonParas && sermonParas.length) {
-      const { texts, blanks } = parseSermon(sermonParas, clusterWords);
+      const afterEach = opts.blankAfterEach === true;
+      const { texts, blanks } = parseSermon(sermonParas, afterEach ? 0 : clusterWords);
       if (texts.length) files.push({ name: "Sermon.pro",
-        bytes: buildElement(templates.sermon, texts, null, "Sermon", lead, blanks) });
+        bytes: buildElement(templates.sermon, texts, null, "Sermon", lead, blanks, afterEach) });
     }
     const nt = scriptures.find(s => /lesson/i.test(s[0]));
     const scriptureRef = nt ? cleanRef(nt[0]) : (scriptures.length ? cleanRef(scriptures[0][0]) : null);
@@ -367,7 +422,8 @@
   }
 
   root.WS = { parse, serialize, buildElement, stripBackgrounds, docxParagraphs, parseLiturgy,
-    parseSermon, generateAll, cueId, findRtf, orderList, entryUuid, rtfSplit, fromLatin1 };
+    parseSermon, generateAll, parseScripture, buildScripture, cueId, findRtf, orderList,
+    entryUuid, rtfSplit, fromLatin1 };
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : this));
 
 if (typeof module !== "undefined" && module.exports) module.exports = (typeof globalThis !== "undefined" ? globalThis : this).WS;

@@ -12,7 +12,14 @@ licensed NRSV). The app just tells you the reference to type.
 2. Drop in the **liturgy** `.docx` and the **sermon** `.docx`.
 3. Click **Generate**, download the files (or "Download all as .zip").
 4. Import them into ProPresenter (File → Import, or drag into a playlist).
-5. For scripture, follow the on-screen note (e.g. *Luke 3:15-22, NRSV*) in the Bible tool.
+5. For scripture, either follow the on-screen note (make it in ProPresenter's Bible
+   tool for licensed NRSV), **or** use the **Scripture — paste from Bible Gateway**
+   section: type a passage name, paste the passage, and click *Make scripture slides*
+   to get one verse-numbered slide per verse. Verse numbers, headings and footnotes
+   in the pasted text are handled automatically.
+
+Output files: `Call to Worship.pro`, `Prayer of Confession.pro`, `Sermon.pro`
+(a blank after every point), and any scripture file you build.
 
 ### How the docs must be written
 - **Liturgy doc** — section headings on their own lines: `Call to Worship`,
