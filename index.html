@@ -94,8 +94,6 @@
 
   <div class="card" style="margin-top:18px">
     <h2>Scripture — paste from Bible Gateway</h2>
-    <input id="scrRef" placeholder="Passage name (e.g. James 3)"
-      style="width:100%;padding:11px 12px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;margin-bottom:10px">
     <textarea id="scrText" rows="7" placeholder="Paste the passage text here — verse numbers, headings and footnotes are handled automatically."
       style="width:100%;padding:11px 12px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;resize:vertical"></textarea>
     <button class="go" id="scrGo" style="margin-top:12px" disabled>Make scripture slides</button>
@@ -187,13 +185,13 @@
   });
 
   // --- Scripture paste ---
-  const scrText=$("#scrText"), scrRef=$("#scrRef"), scrGo=$("#scrGo");
+  const scrText=$("#scrText"), scrGo=$("#scrGo");
   scrText.addEventListener("input", ()=>{ scrGo.disabled = !scrText.value.trim(); });
   scrGo.addEventListener("click", async ()=>{
     scrGo.disabled=true; scrGo.textContent="Building…";
     try{
       const t=await loadTemplates();
-      const name=(scrRef.value.trim()||"Scripture Reading").replace(/[\\/:*?"<>|]/g,"");
+      const name="Scripture Reading";
       const {bytes,count}=WS.buildScripture(t.confession, scrText.value, name);
       const box=$("#scrResult"); box.innerHTML="";
       if(!count){ box.innerHTML='<p class="muted" style="margin-top:12px">No verses found — check the pasted text.</p>'; }

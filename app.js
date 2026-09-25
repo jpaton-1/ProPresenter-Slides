@@ -219,6 +219,9 @@
   function endsWithMedia(b) { const t = fromLatin1(b).toLowerCase(); return MEDIA_EXT.some(x => t.endsWith(x)); }
   function stripBackgrounds(tree) {
     let removed = 0;
+    for (const f of tree) {              // clear the presentation-level background (field 8)
+      if (f.num === 8 && f.wt === 2 && (Array.isArray(f.val) || f.val.length)) { f.val = new Uint8Array(0); removed++; }
+    }
     for (const cue of tree) {
       if (cue.num !== 13 || !Array.isArray(cue.val)) continue;
       const nc = [];
@@ -256,7 +259,7 @@
     const protoEntry = orderEntryFor(ol, cueId(proto));
 
     const newCues = [], newOrder = [ol.val[0]];
-    const makeBlank = () => { const c = cloneField(proto); remapUuids(c); stripTextElements(c); return c; };
+    const makeBlank = () => { const c = cloneField(proto); remapUuids(c); setText(c, ""); return c; };
     const push = (cue, entry) => { newCues.push(cue); newOrder.push(entry || makeOrderEntry(protoEntry, cueId(cue))); };
     if (leadingBlank) push(makeBlank());
     if (introCue) push(introCue, orderEntryFor(ol, cueId(introCue)));
